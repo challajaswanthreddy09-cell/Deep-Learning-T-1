@@ -1,0 +1,315 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>VisionPort - Indian Traffic Analyzer</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #101827;
+            color: white;
+            margin: 0;
+            padding: 30px;
+        }
+
+        .visionport-container {
+            max-width: 1000px;
+            margin: auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 35px;
+        }
+
+        .metrics-grid {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            flex: 1;
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .status-online {
+            color: #22c55e;
+        }
+
+        .status-offline {
+            color: #ef4444;
+        }
+
+        .workspace {
+            background: #1e293b;
+            padding: 25px;
+            border-radius: 12px;
+        }
+
+        input {
+            margin: 15px 0;
+        }
+
+        .view-panel {
+            margin-top: 25px;
+            text-align: center;
+        }
+
+        img,
+        video {
+            max-width: 100%;
+            max-height: 550px;
+            border-radius: 10px;
+            transition: opacity 0.3s;
+        }
+
+        #video-detections {
+            text-align: left;
+            margin: 20px auto 0;
+            max-width: 520px;
+        }
+
+        @media(max-width: 650px) {
+            .metrics-grid {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="visionport-container">
+
+    <header>
+        <h1>VisionPort Live Portal</h1>
+        <p>Indian Traffic Detection Analyzer</p>
+        <p>Upload a traffic image or video to detect objects using YOLOv8.</p>
+    </header>
+
+    <div class="metrics-grid">
+
+        <div class="card">
+            <strong>System Status:</strong>
+            <span id="system-status">Checking...</span>
+        </div>
+
+        <div class="card">
+            <strong>Model:</strong> YOLOv8 Nano
+        </div>
+
+        <div class="card">
+            <strong>Detection:</strong> Image Processing
+        </div>
+
+    </div>
+
+    <div class="workspace">
+
+        <h3>Upload Traffic Image</h3>
+
+        <input
+            type="file"
+            id="traffic-uploader"
+            accept="image/*"
+            onchange="processImage(event)"
+        />
+
+        <p id="status">Waiting for image...</p>
+
+        <div class="view-panel">
+
+            <h3>Detection Output</h3>
+
+            <img
+                id="output-preview"
+                alt="Detection output will appear here"
+                style="display:none;"
+            />
+
+        </div>
+
+        <hr>
+
+        <h3>Analyze Traffic Video</h3>
+        <p>Supported formats: MP4, MOV, AVI, MKV, WEBM (up to 100 MB).</p>
+        <input
+            type="file"
+            id="video-uploader"
+            accept="video/*"
+            onchange="analyzeVideo(event)"
+        />
+        <p id="video-status">Waiting for video...</p>
+
+        <div class="view-panel">
+            <h3>Annotated Video</h3>
+            <video id="video-output" controls style="display:none;"></video>
+            <div id="video-detections" style="display:none;"></div>
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+
+    const apiBaseURL = window.location.protocol === "file:"
+        ? "http://127.0.0.1:8000"
+        : "";
+    let previousImageURL = null;
+    let previousVideoURL = null;
+
+    async function processImage(event) {
+
+        const file = event.target.files[0];
+
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const outputImg =
+            document.getElementById("output-preview");
+
+        const status =
+            document.getElementById("status");
+
+        status.textContent = "Processing image...";
+
+        outputImg.style.opacity = "0.5";
+
+        try {
+
+            const response = await fetch(
+                `${apiBaseURL}/detect/`,
+                {
+                    method: "POST",
+                    body: formData
+                }
+            );
+
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                throw new Error(error.detail || "Detection failed");
+            }
+
+            const blob = await response.blob();
+
+            if (previousImageURL) {
+                URL.revokeObjectURL(previousImageURL);
+            }
+
+            previousImageURL = URL.createObjectURL(blob);
+
+            outputImg.src = previousImageURL;
+            outputImg.style.display = "block";
+
+            status.textContent = "Detection completed successfully!";
+
+        } catch (error) {
+
+            status.textContent = "Error: " + error.message;
+
+        } finally {
+
+            outputImg.style.opacity = "1";
+
+        }
+    }
+
+    async function analyzeVideo(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const status = document.getElementById("video-status");
+        const outputVideo = document.getElementById("video-output");
+        const detections = document.getElementById("video-detections");
+        status.textContent = "Analyzing video. This may take a while...";
+        outputVideo.style.opacity = "0.5";
+
+        try {
+            const response = await fetch(`${apiBaseURL}/analyze-video/`, {
+                method: "POST",
+                body: formData
+            });
+
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                throw new Error(error.detail || "Video analysis failed");
+            }
+
+            const blob = await response.blob();
+            if (previousVideoURL) {
+                URL.revokeObjectURL(previousVideoURL);
+            }
+
+            previousVideoURL = URL.createObjectURL(blob);
+            outputVideo.src = previousVideoURL;
+            outputVideo.style.display = "block";
+
+            const counts = JSON.parse(
+                response.headers.get("X-Detection-Summary") || "{}"
+            );
+            detections.replaceChildren();
+            const heading = document.createElement("h4");
+            heading.textContent = "Detections across video frames";
+            detections.appendChild(heading);
+
+            const classNames = Object.keys(counts).sort();
+            if (classNames.length === 0) {
+                const message = document.createElement("p");
+                message.textContent = "No objects detected.";
+                detections.appendChild(message);
+            } else {
+                const list = document.createElement("ul");
+                for (const className of classNames) {
+                    const item = document.createElement("li");
+                    item.textContent = `${className}: ${counts[className]}`;
+                    list.appendChild(item);
+                }
+                detections.appendChild(list);
+            }
+            detections.style.display = "block";
+            status.textContent = "Video analysis completed successfully.";
+        } catch (error) {
+            status.textContent = "Error: " + error.message;
+        } finally {
+            outputVideo.style.opacity = "1";
+        }
+    }
+
+    async function checkSystemStatus() {
+        const systemStatus = document.getElementById("system-status");
+
+        try {
+            const response = await fetch(`${apiBaseURL}/health`);
+            if (!response.ok) {
+                throw new Error("Backend is unavailable");
+            }
+
+            const health = await response.json();
+            systemStatus.textContent = health.status;
+            systemStatus.className = "status-online";
+        } catch {
+            systemStatus.textContent = "Offline";
+            systemStatus.className = "status-offline";
+        }
+    }
+
+    checkSystemStatus();
+
+</script>
+
+</body>
+</html>
